@@ -11,14 +11,42 @@ bp = Blueprint('super_admin', __name__)
 @role_required(['super_admin'])
 def get_admins():
     conn = db.get_connection()
+
+    if conn is None:
+        return jsonify({
+            "success": False,
+            "message": "Database connection failed"
+        }), 500
+
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT user_id as id, email, role, created_at FROM users WHERE role IN ('admin', 'super_admin')")
-        return jsonify({"success": True, "admins": cursor.fetchall()}), 200
+
+        cursor.execute("""
+            SELECT
+                user_id AS id,
+                email,
+                role,
+                created_at
+            FROM users
+            WHERE role IN ('admin', 'super_admin')
+        """)
+
+        admins = cursor.fetchall()
+
+        return jsonify({
+            "success": True,
+            "admins": admins
+        }), 200
+
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @bp.route('/super_admin/create-admin', methods=['POST'])
 @jwt_required()
