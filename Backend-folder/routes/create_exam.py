@@ -96,11 +96,12 @@ def create_exam_pdf():
     deadline = request.form.get('deadline')
     description = request.form.get('description', '')
     total_questions = int(request.form.get('total_questions', 0))
+    answer_key_str = request.form.get('answer_key', '{}')
 
     if not title:
         return jsonify({"success": False, "message": "Title is required"}), 400
 
-    pdf_file = request.files.get('pdf')
+    pdf_file = request.files.get('pdf') or request.files.get('pdf_file')
     pdf_url = None
 
     conn = db.get_connection()
