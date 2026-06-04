@@ -5,6 +5,7 @@ from database import db
 import random
 import string
 import os
+import json
 
 bp = Blueprint('create_exam', __name__)
 
@@ -96,13 +97,22 @@ def create_exam_pdf():
     deadline = request.form.get('deadline')
     description = request.form.get('description', '')
     total_questions = int(request.form.get('total_questions', 0))
-    answer_key_str = request.form.get('answer_key', '{}')
 
     if not title:
         return jsonify({"success": False, "message": "Title is required"}), 400
 
-    pdf_file = request.files.get('pdf') or request.files.get('pdf_file')
+    # FIX A: Accept both 'pdf_file' (what frontend sends) and 'pdf' (fallback)
+    pdf_file = request.files.get('pdf_file') or request.files.get('pdf')
     pdf_url = None
+
+    # FIX B: Parse answer_key JSON sent by frontend
+    answer_key_raw = request.form.get('answer_key')
+    answer_key = {}
+    if answer_key_raw:
+        try:
+            answer_key = json.loads(answer_key_raw)
+        except (json.JSONDecodeError, TypeError):
+            return jsonify({"success": False, "message": "Invalid answer_key format. Must be JSON like {\"1\":\"A\", \"2\":\"C\"}"}), 400
 
     conn = db.get_connection()
     if conn is None:
@@ -112,12 +122,31 @@ def create_exam_pdf():
         cursor = conn.cursor()
         exam_code = generate_exam_code()
 
-        # FIX #5: Save PDF ONLY after DB insert succeeds
+        # Insert exam record
         cursor.execute("""
             INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, total_questions)
             VALUES (%s, %s, %s, %s, 'published', %s, %s, %s)
         """, (title, description, duration, deadline or None, user_id, exam_code, total_questions or None))
         exam_id = cursor.lastrowid
+
+        # FIX B: Store answer key as questions + options rows
+        if answer_key:
+            for q_num_str, correct_label in answer_key.items():
+                q_num = int(q_num_str)
+                # Insert question row (use question_order for ordering, same as exam_dashboard expects)
+                cursor.execute("""
+                    INSERT INTO questions (exam_id, question_text, question_order, marks)
+                    VALUES (%s, %s, %s, %s)
+                """, (exam_id, f"Question {q_num}", q_num, 1.00))
+                question_id = cursor.lastrowid
+
+                # Insert option rows (A, B, C, D) — set is_correct=1 on the right one
+                for label in ['A', 'B', 'C', 'D']:
+                    is_correct = 1 if label == correct_label.upper() else 0
+                    cursor.execute("""
+                        INSERT INTO options (question_id, option_label, option_text, is_correct)
+                        VALUES (%s, %s, %s, %s)
+                    """, (question_id, label, f"Option {label}", is_correct))
 
         # Save PDF after DB insert succeeds
         if pdf_file:
@@ -137,13 +166,16 @@ def create_exam_pdf():
         return jsonify({
             "success": True,
             "message": "Exam created successfully with PDF",
-            "exam_id": exam_id,
-            "exam_code": exam_code,
-            "pdf_url": pdf_url
+            "exam": {
+                "exam_id": exam_id,
+                "exam_code": exam_code,
+                "title": title,
+                "pdf_url": pdf_url
+            }
         }), 201
     except Exception as e:
         conn.rollback()
-        # FIX #5: If DB fails, don't leave orphaned files
+        # Clean up orphaned file if it was saved but DB failed
         if pdf_url:
             try:
                 os.remove(os.path.join('uploads', 'exams', filename))
