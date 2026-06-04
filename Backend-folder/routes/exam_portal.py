@@ -6,20 +6,21 @@ from datetime import datetime
 
 bp = Blueprint('exam_portal', __name__)
 
+
 @bp.route('/exam/available', methods=['GET'])
 @jwt_required()
 @role_required(['student'])
 def get_available_exams():
     user_id = get_jwt_identity()
+
     conn = db.get_connection()
     if conn is None:
-        return jsonify({"success": False, "message": "Database connection failed"}), 500
-
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT 
-                e.exam_id as id, e.title, e.exam_code, e.description, 
+            SELECT
+                e.exam_id as id, e.title, e.exam_code, e.description,
                 e.duration_minutes as duration, e.end_time as deadline, e.created_at,
                 (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.exam_id) as total_questions
             FROM exams e
@@ -28,22 +29,28 @@ def get_available_exams():
         """
         cursor.execute(query, (user_id,))
         exams = cursor.fetchall()
+
         return jsonify({"success": True, "exams": exams}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+
 
 @bp.route('/exam/by-code/<string:code>', methods=['GET'])
 @jwt_required()
 @role_required(['student'])
 def get_exam_by_code(code):
     user_id = get_jwt_identity()
+
     conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT e.exam_id as id, e.title, e.exam_code, e.description, 
+            SELECT e.exam_id as id, e.title, e.exam_code, e.description,
                    e.duration_minutes as duration, e.end_time as deadline,
                    (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.exam_id) as total_questions
             FROM exams e
@@ -52,13 +59,17 @@ def get_exam_by_code(code):
         """
         cursor.execute(query, (code.strip().upper(), user_id))
         exam = cursor.fetchone()
+
         if not exam:
             return jsonify({"success": False, "message": "Invalid or expired exam code"}), 404
+
         return jsonify({"success": True, "exam": exam}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+
 
 @bp.route('/exam/join', methods=['POST'])
 @jwt_required()
@@ -72,33 +83,38 @@ def join_exam():
         return jsonify({"success": False, "message": "Exam code is required"}), 400
 
     conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
-        
+
         # 1. Find exam by code
         cursor.execute("SELECT exam_id FROM exams WHERE exam_code = %s AND status = 'published'", (exam_code,))
         exam = cursor.fetchone()
+
         if not exam:
             return jsonify({"success": False, "message": "Invalid exam code"}), 404
-        
+
         exam_id = exam['exam_id']
 
         # 2. Check if already joined
         cursor.execute("SELECT attempt_id FROM student_attempts WHERE exam_id = %s AND user_id = %s", (exam_id, user_id))
         attempt = cursor.fetchone()
-        
+
         if attempt:
             return jsonify({"success": True, "message": "Already joined this exam", "attempt_id": attempt['attempt_id']}), 200
 
         # 3. Create new attempt
         cursor.execute(
             "INSERT INTO student_attempts (exam_id, user_id, start_time, end_time, attempt_status) VALUES (%s, %s, %s, %s, 'in_progress')",
-            (exam_id, user_id, datetime.now(), datetime.now()) # end_time updated on submit
+            (exam_id, user_id, datetime.now(), datetime.now())
         )
         conn.commit()
-        
+
         return jsonify({"success": True, "message": "Joined successfully", "attempt_id": cursor.lastrowid}), 201
     except Exception as e:
+        conn.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
