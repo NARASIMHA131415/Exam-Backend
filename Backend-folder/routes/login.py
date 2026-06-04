@@ -6,6 +6,7 @@ import os
 
 bp = Blueprint('login', __name__)
 
+
 @bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -16,14 +17,12 @@ def login():
         return jsonify({"success": False, "message": "Email and password are required"}), 400
 
     # --- SUPER ADMIN ENV OVERRIDE ---
-    # This allows the Super Admin to log in using the credentials defined in the .env file
     env_super_email = os.getenv('SUPER_ADMIN_EMAIL', '').lower()
     env_super_pw = os.getenv('SUPER_ADMIN_PASSWORD', '')
 
     if env_super_email and email == env_super_email and password == env_super_pw:
-        # Create token for Super Admin
         access_token = create_access_token(
-            identity="1", # Default ID for system super admin
+            identity="1",
             additional_claims={"role": "super_admin"}
         )
         return jsonify({
@@ -34,7 +33,8 @@ def login():
                 "user": {
                     "id": 1,
                     "email": email,
-                    "role": "super_admin"
+                    "role": "super_admin",
+                    "name": "Super Admin"
                 }
             }
         }), 200
@@ -42,13 +42,18 @@ def login():
 
     conn = db.get_connection()
     if conn is None:
-        return jsonify({"success": False, "message": "Database connection failed"}), 500
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
 
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # Standard database login for all users
-        query = "SELECT user_id, email, password, role FROM users WHERE email = %s"
+
+        query = """
+            SELECT u.user_id, u.email, u.password, u.role,
+                   CONCAT(up.first_name, ' ', up.last_name) AS name
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.email = %s
+        """
         cursor.execute(query, (email,))
         user = cursor.fetchone()
 
@@ -57,12 +62,12 @@ def login():
 
         # Verify password
         if not check_password_hash(user['password'], password):
-            if user['password'] != password: # Fallback for plain text during migration
+            if user['password'] != password:  # Fallback for plain text during migration
                 return jsonify({"success": False, "message": "Invalid email or password"}), 401
 
         # Create JWT Token
         access_token = create_access_token(
-            identity=str(user['user_id']), 
+            identity=str(user['user_id']),
             additional_claims={"role": user['role']}
         )
 
@@ -74,7 +79,8 @@ def login():
                 "user": {
                     "id": user['user_id'],
                     "email": user['email'],
-                    "role": user['role']
+                    "role": user['role'],
+                    "name": user['name'] or user['email'].split('@')[0]
                 }
             }
         }), 200
@@ -83,8 +89,9 @@ def login():
         print(f"Login Error: {e}")
         return jsonify({"success": False, "message": "An internal server error occurred"}), 500
     finally:
-        cursor.close()
-        conn.close()
+        if conn:
+            conn.close()
+
 
 @bp.route('/change-password', methods=['POST'])
 @jwt_required()
@@ -98,6 +105,8 @@ def change_password():
         return jsonify({"success": False, "message": "Old and new passwords are required"}), 400
 
     conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT password FROM users WHERE user_id = %s", (user_id,))
@@ -113,9 +122,10 @@ def change_password():
         hashed_new_pw = generate_password_hash(new_password)
         cursor.execute("UPDATE users SET password = %s WHERE user_id = %s", (hashed_new_pw, user_id))
         conn.commit()
-        
+
         return jsonify({"success": True, "message": "Password updated successfully"}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
