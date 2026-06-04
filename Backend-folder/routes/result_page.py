@@ -37,8 +37,13 @@ def get_result(attempt_id):
         cursor.execute("SELECT exam_id FROM student_attempts WHERE attempt_id = %s", (attempt_id,))
         exam_id = cursor.fetchone()['exam_id']
 
+        # BUG FIX: Use option_label instead of option_text for comparison
+        # selected_option_id stores the label (A, B, C, D), so we compare with option_label
+        # Also fetch option_text for display purposes
         cursor.execute(
-            "SELECT q.question_id, o.option_text as correct_val FROM questions q JOIN options o ON q.question_id = o.question_id WHERE q.exam_id = %s AND o.is_correct = TRUE",
+            "SELECT q.question_id, o.option_label as correct_val, o.option_text as correct_text "
+            "FROM questions q JOIN options o ON q.question_id = o.question_id "
+            "WHERE q.exam_id = %s AND o.is_correct = TRUE",
             (exam_id,)
         )
         correct_ans = cursor.fetchall()
@@ -50,11 +55,14 @@ def get_result(attempt_id):
         for i, row in enumerate(correct_ans, 1):
             q_id = row['question_id']
             s_val = student_ans.get(q_id)
+            # Compare labels (A==A), not text vs label
+            is_correct = (str(s_val).strip().upper() == str(row['correct_val']).strip().upper()) if s_val and row['correct_val'] else False
             detailed.append({
                 "question_number": i,
-                "correct_answer": row['correct_val'],
-                "student_answer": s_val,
-                "is_correct": s_val == row['correct_val']
+                "correct_answer": row['correct_val'],      # Label: "A"
+                "correct_text": row.get('correct_text'),    # Text: "Paris" (for display)
+                "student_answer": s_val,                     # Label: "A" or "B" etc
+                "is_correct": is_correct
             })
 
         return jsonify({
