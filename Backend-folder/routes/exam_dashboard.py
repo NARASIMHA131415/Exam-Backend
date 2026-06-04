@@ -10,7 +10,6 @@ import uuid
 bp = Blueprint('exam_dashboard', __name__)
 
 
-# Helper to save base64 image to disk
 def save_violation_image(base64_str):
     if not base64_str or not base64_str.startswith('data:image'):
         return None
@@ -135,7 +134,6 @@ def submit_exam(exam_id):
 
         cursor.execute("UPDATE student_attempts SET attempt_status = 'submitted', end_time = %s WHERE attempt_id = %s", (datetime.now(), attempt_id))
 
-        # Store violations and save images
         for v in violations:
             image_path = save_violation_image(v.get('image'))
             cursor.execute("""
@@ -143,7 +141,6 @@ def submit_exam(exam_id):
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (attempt_id, v.get('type'), v.get('message'), v.get('severity'), image_path, datetime.now()))
 
-        # Grading logic
         cursor.execute(
             "SELECT q.question_id, o.option_id FROM questions q JOIN options o ON q.question_id = o.question_id WHERE q.exam_id = %s AND o.is_correct = TRUE",
             (exam_id,)
@@ -175,7 +172,57 @@ def submit_exam(exam_id):
             conn.close()
 
 
-# Route to serve the violation images to the Admin
+# FIX #9: GET /api/exam/<id>/timer
+@bp.route('/exam/<int:exam_id>/timer', methods=['GET'])
+@jwt_required()
+@role_required(['student'])
+def check_timer(exam_id):
+    user_id = get_jwt_identity()
+
+    conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("SELECT duration_minutes FROM exams WHERE exam_id = %s", (exam_id,))
+        exam = cursor.fetchone()
+
+        if not exam:
+            return jsonify({"success": False, "message": "Exam not found"}), 404
+
+        cursor.execute(
+            "SELECT attempt_id, start_time FROM student_attempts WHERE exam_id = %s AND user_id = %s AND attempt_status = 'in_progress'",
+            (exam_id, user_id)
+        )
+        attempt = cursor.fetchone()
+
+        if not attempt:
+            return jsonify({"success": False, "message": "No active attempt"}), 403
+
+        start_time = attempt['start_time']
+        duration_seconds = exam['duration_minutes'] * 60
+        elapsed = (datetime.now() - start_time).total_seconds()
+        remaining = max(0, int(duration_seconds - elapsed))
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "attempt_id": attempt['attempt_id'],
+                "start_time": start_time.isoformat(),
+                "duration_seconds": duration_seconds,
+                "elapsed_seconds": int(elapsed),
+                "remaining_seconds": remaining,
+                "is_expired": remaining <= 0
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
 @bp.route('/uploads/violations/<filename>')
 def serve_violation_image(filename):
     return send_from_directory('uploads/violations', filename)
