@@ -7,7 +7,6 @@ import os
 # Import blueprints
 from routes.login import bp as login_bp
 from routes.dashboard import bp as student_dash_bp
-from routes.admin_dashboard import bp as admin_dash_bp
 from routes.super_admin_dashboard import bp as super_admin_bp
 from routes.exam_portal import bp as exam_portal_bp
 from routes.exam_dashboard import bp as exam_dash_bp
@@ -20,18 +19,21 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# CORS Configuration using FRONTEND_URL from .env
+# CORS Configuration — allows frontend to access all API and upload routes
 frontend_url = os.getenv('FRONTEND_URL', '*')
-CORS(app, resources={r"/api/*": {"origins": frontend_url}})
+CORS(app, resources={
+    r"/api/*": {"origins": frontend_url},
+    r"/uploads/*": {"origins": frontend_url}
+})
 
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key-change-this-in-production')
 jwt = JWTManager(app)
 
 # Register blueprints with prefixes to match api.js
+# FIX #2: Removed dead admin_dashboard blueprint
 app.register_blueprint(login_bp, url_prefix='/api')
 app.register_blueprint(student_dash_bp, url_prefix='/api')
-app.register_blueprint(admin_dash_bp, url_prefix='/api')
 app.register_blueprint(super_admin_bp, url_prefix='/api')
 app.register_blueprint(exam_portal_bp, url_prefix='/api')
 app.register_blueprint(exam_dash_bp, url_prefix='/api')
