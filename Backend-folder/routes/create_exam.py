@@ -4,6 +4,7 @@ from utils.auth import role_required
 from database import db
 import random
 import string
+import os
 
 bp = Blueprint('create_exam', __name__)
 
@@ -74,6 +75,62 @@ def create_exam():
         conn.commit()
 
         return jsonify({"success": True, "message": "Exam created successfully", "exam_id": cursor.lastrowid, "exam_code": exam_code}), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# FIX #6: POST /api/exams/create-with-pdf
+@bp.route('/exams/create-with-pdf', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'super_admin'])
+def create_exam_pdf():
+    user_id = get_jwt_identity()
+
+    title = request.form.get('title')
+    duration = request.form.get('duration', 60)
+    deadline = request.form.get('deadline')
+    description = request.form.get('description', '')
+
+    if not title:
+        return jsonify({"success": False, "message": "Title is required"}), 400
+
+    pdf_file = request.files.get('pdf')
+    pdf_url = None
+
+    if pdf_file:
+        upload_dir = os.path.join('uploads', 'exams')
+        os.makedirs(upload_dir, exist_ok=True)
+
+        filename = f"exam_{generate_exam_code()}_{pdf_file.filename}"
+        filepath = os.path.join(upload_dir, filename)
+        pdf_file.save(filepath)
+        pdf_url = f"/uploads/exams/{filename}"
+
+    conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
+    try:
+        cursor = conn.cursor()
+        exam_code = generate_exam_code()
+        total_questions = int(request.form.get('total_questions', 0))
+
+        cursor.execute("""
+            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, pdf_url, total_questions)
+            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s, %s)
+        """, (title, description, duration, deadline or None, user_id, exam_code, pdf_url, total_questions or None))
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Exam created successfully with PDF",
+            "exam_id": cursor.lastrowid,
+            "exam_code": exam_code,
+            "pdf_url": pdf_url
+        }), 201
     except Exception as e:
         conn.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
