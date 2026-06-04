@@ -54,12 +54,38 @@ def get_exam_questions(exam_id):
 
         questions = []
         if not exam['pdf_url']:
-            cursor.execute("SELECT question_id as id, question_text, marks FROM questions WHERE exam_id = %s ORDER BY question_order", (exam_id,))
-            questions = cursor.fetchall()
+            cursor.execute("""
+                SELECT q.question_id AS id, q.question_text, q.marks, q.question_order,
+                       o.option_id, o.option_text, o.option_label, o.is_correct
+                FROM questions q
+                JOIN options o ON q.question_id = o.question_id
+                WHERE q.exam_id = %s
+                ORDER BY q.question_order, o.option_id
+            """, (exam_id,))
+            rows = cursor.fetchall()
+
+            # Group options by question
+            question_map = {}
+            for row in rows:
+                qid = row['id']
+                if qid not in question_map:
+                    question_map[qid] = {
+                        "id": qid,
+                        "question_text": row['question_text'],
+                        "marks": row['marks'],
+                        "options": {}
+                    }
+                # Use option_label (A, B, C, D) as key, store option_id for reference
+                label = row.get('option_label') or chr(65 + len(question_map[qid]['options']))
+                question_map[qid]['options'][label] = row['option_text']
+                # Store correct option_id internally for grading
+                if row['is_correct']:
+                    question_map[qid]['_correct_label'] = label
+
+            questions = list(question_map.values())
+            # Remove internal grading info before sending to student
             for q in questions:
-                cursor.execute("SELECT option_text, is_correct FROM options WHERE question_id = %s", (q['id'],))
-                opts = cursor.fetchall()
-                q['options'] = {chr(65 + i): opt['option_text'] for i, opt in enumerate(opts)}
+                q.pop('_correct_label', None)
 
         return jsonify({"success": True, "exam": exam, "questions": questions, "submission": attempt}), 200
     except Exception as e:
@@ -75,7 +101,7 @@ def get_exam_questions(exam_id):
 def save_answer(exam_id):
     user_id = get_jwt_identity()
     data = request.get_json()
-    answer = data.get('answer')
+    answer = data.get('answer')  # This is the option label: "A", "B", "C", "D"
     q_id = data.get('question_id') or data.get('question_number')
 
     if not q_id or not answer:
@@ -93,9 +119,12 @@ def save_answer(exam_id):
         if not attempt:
             return jsonify({"success": False, "message": "No active attempt"}), 403
 
+        attempt_id = attempt[0]
+
+        # Store the answer label (A, B, C, D) — same format used in grading
         cursor.execute(
             "INSERT INTO student_answers (attempt_id, question_id, selected_option_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE selected_option_id = VALUES(selected_option_id)",
-            (attempt[0], q_id, answer)
+            (attempt_id, q_id, answer)
         )
         conn.commit()
 
@@ -132,8 +161,10 @@ def submit_exam(exam_id):
 
         attempt_id = attempt['attempt_id']
 
+        # 1. Mark attempt as submitted
         cursor.execute("UPDATE student_attempts SET attempt_status = 'submitted', end_time = %s WHERE attempt_id = %s", (datetime.now(), attempt_id))
 
+        # 2. Save violation images and records
         for v in violations:
             image_path = save_violation_image(v.get('image'))
             cursor.execute("""
@@ -141,21 +172,41 @@ def submit_exam(exam_id):
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (attempt_id, v.get('type'), v.get('message'), v.get('severity'), image_path, datetime.now()))
 
-        cursor.execute(
-            "SELECT q.question_id, o.option_id FROM questions q JOIN options o ON q.question_id = o.question_id WHERE q.exam_id = %s AND o.is_correct = TRUE",
-            (exam_id,)
-        )
-        correct_map = {row['question_id']: row['option_id'] for row in cursor.fetchall()}
+        # 3. FIX #1: Correct grading logic
+        # Get correct answers as option labels (A, B, C, D) — same format student sends
+        cursor.execute("""
+            SELECT q.question_id, o.option_label
+            FROM questions q
+            JOIN options o ON q.question_id = o.question_id
+            WHERE q.exam_id = %s AND o.is_correct = TRUE
+        """, (exam_id,))
+        correct_map = {row['question_id']: row['option_label'] for row in cursor.fetchall()}
 
-        correct_count = sum(
-            1 for a in answers
-            if (a.get('question_id') or a.get('question_number')) in correct_map
-            and str(a.get('answer')) == str(correct_map.get(a.get('question_id') or a.get('question_number')))
-        )
+        # Get student answers from DB (in case frontend didn't send all)
+        cursor.execute("SELECT question_id, selected_option_id FROM student_answers WHERE attempt_id = %s", (attempt_id,))
+        db_answers = {row['question_id']: row['selected_option_id'] for row in cursor.fetchall()}
+
+        # Merge: frontend answers override DB answers
+        submitted_answers = {}
+        for a in answers:
+            q_id = a.get('question_id') or a.get('question_number')
+            submitted_answers[q_id] = a.get('answer')
+
+        # Use DB answers as base, override with submitted
+        final_answers = {**db_answers, **submitted_answers}
+
+        # Grade: compare student answer label with correct answer label
+        correct_count = 0
+        total_questions = len(correct_map)
+        for q_id, correct_label in correct_map.items():
+            student_answer = str(final_answers.get(q_id, '')).strip().upper()
+            if student_answer == str(correct_label).strip().upper():
+                correct_count += 1
 
         score = correct_count
-        percentage = (correct_count / len(correct_map) * 100) if correct_map else 0
+        percentage = (correct_count / total_questions * 100) if total_questions > 0 else 0
 
+        # 4. Save results
         cursor.execute(
             "INSERT INTO results (attempt_id, score, correct_answers, percentage, evaluated_at) VALUES (%s, %s, %s, %s, %s)",
             (attempt_id, score, correct_count, percentage, datetime.now())
@@ -163,7 +214,13 @@ def submit_exam(exam_id):
 
         conn.commit()
 
-        return jsonify({"success": True, "attempt_id": attempt_id, "score": score}), 200
+        return jsonify({
+            "success": True,
+            "attempt_id": attempt_id,
+            "score": score,
+            "total_questions": total_questions,
+            "percentage": round(percentage, 1)
+        }), 200
     except Exception as e:
         conn.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
@@ -172,7 +229,7 @@ def submit_exam(exam_id):
             conn.close()
 
 
-# FIX #9: GET /api/exam/<id>/timer
+# GET /api/exam/<id>/timer
 @bp.route('/exam/<int:exam_id>/timer', methods=['GET'])
 @jwt_required()
 @role_required(['student'])
