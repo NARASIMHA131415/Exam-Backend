@@ -24,7 +24,14 @@ class Database:
             )
             return connection
         except Error as e:
-            print(f"Error connecting to MySQL: {e}")
+            print("========== DATABASE ERROR ==========")
+            print(f"Host: {self.host}")
+            print(f"User: {self.user}")
+            print(f"Database: {self.database}")
+            print(f"Port: {self.port}")
+            print(f"MySQL Error: {e}")
+            print("===================================")
+            return None
             return None
 
 db = Database()
