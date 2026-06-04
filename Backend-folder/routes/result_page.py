@@ -128,24 +128,36 @@ def get_admin_results():
     finally:
         conn.close()
 
-@bp.route('/admin/deletion-requests', methods=['POST'])
+@bp.route('/admin/deletion-requests', methods=['GET'])
 @jwt_required()
-@role_required(['admin'])
-def request_deletion():
-    data = request.get_json()
-    target_id = data.get('target_id')
-    user_id = get_jwt_identity()
+@role_required(['admin', 'super_admin'])
+def get_deletion_requests():
     conn = db.get_connection()
+
+    if conn is None:
+        return jsonify({
+            "success": False,
+            "message": "Database connection failed"
+        }), 500
+
     try:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO deletion_requests (requested_by, target_id, type, status) VALUES (%s, %s, %s, 'Pending Approval')", 
-                       (user_id, target_id, data.get('type')))
-        conn.commit()
-        return jsonify({"success": True, "message": "Deletion request submitted"}), 201
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM deletion_requests")
+
+        return jsonify({
+            "success": True,
+            "requests": cursor.fetchall()
+        }), 200
+
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @bp.route('/admin/deletion-requests', methods=['GET'])
 @jwt_required()
