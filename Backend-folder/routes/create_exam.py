@@ -67,11 +67,12 @@ def create_exam():
         user_id = get_jwt_identity()
         exam_code = generate_exam_code()
 
+        # FIX #4: Include total_questions in INSERT
         query = """
-            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code)
-            VALUES (%s, %s, %s, %s, 'published', %s, %s)
+            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s)
         """
-        cursor.execute(query, (title, description, duration, deadline, user_id, exam_code))
+        cursor.execute(query, (title, description, duration, deadline, user_id, exam_code, total_questions))
         conn.commit()
 
         return jsonify({"success": True, "message": "Exam created successfully", "exam_id": cursor.lastrowid, "exam_code": exam_code}), 201
@@ -83,7 +84,7 @@ def create_exam():
             conn.close()
 
 
-# FIX #6: POST /api/exams/create-with-pdf
+# POST /api/exams/create-with-pdf
 @bp.route('/exams/create-with-pdf', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'super_admin'])
@@ -94,6 +95,7 @@ def create_exam_pdf():
     duration = request.form.get('duration', 60)
     deadline = request.form.get('deadline')
     description = request.form.get('description', '')
+    total_questions = int(request.form.get('total_questions', 0))
 
     if not title:
         return jsonify({"success": False, "message": "Title is required"}), 400
@@ -101,38 +103,51 @@ def create_exam_pdf():
     pdf_file = request.files.get('pdf')
     pdf_url = None
 
-    if pdf_file:
-        upload_dir = os.path.join('uploads', 'exams')
-        os.makedirs(upload_dir, exist_ok=True)
-
-        filename = f"exam_{generate_exam_code()}_{pdf_file.filename}"
-        filepath = os.path.join(upload_dir, filename)
-        pdf_file.save(filepath)
-        pdf_url = f"/uploads/exams/{filename}"
-
     conn = db.get_connection()
     if conn is None:
         return jsonify({"success": False, "message": "Database connection failed"}), 503
+
     try:
         cursor = conn.cursor()
         exam_code = generate_exam_code()
-        total_questions = int(request.form.get('total_questions', 0))
 
+        # FIX #5: Save PDF ONLY after DB insert succeeds
         cursor.execute("""
-            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, pdf_url, total_questions)
-            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s, %s)
-        """, (title, description, duration, deadline or None, user_id, exam_code, pdf_url, total_questions or None))
+            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s)
+        """, (title, description, duration, deadline or None, user_id, exam_code, total_questions or None))
+        exam_id = cursor.lastrowid
+
+        # Save PDF after DB insert succeeds
+        if pdf_file:
+            upload_dir = os.path.join('uploads', 'exams')
+            os.makedirs(upload_dir, exist_ok=True)
+
+            filename = f"exam_{exam_code}_{pdf_file.filename}"
+            filepath = os.path.join(upload_dir, filename)
+            pdf_file.save(filepath)
+            pdf_url = f"/uploads/exams/{filename}"
+
+            # Update record with PDF URL
+            cursor.execute("UPDATE exams SET pdf_url = %s WHERE exam_id = %s", (pdf_url, exam_id))
+
         conn.commit()
 
         return jsonify({
             "success": True,
             "message": "Exam created successfully with PDF",
-            "exam_id": cursor.lastrowid,
+            "exam_id": exam_id,
             "exam_code": exam_code,
             "pdf_url": pdf_url
         }), 201
     except Exception as e:
         conn.rollback()
+        # FIX #5: If DB fails, don't leave orphaned files
+        if pdf_url:
+            try:
+                os.remove(os.path.join('uploads', 'exams', filename))
+            except:
+                pass
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if conn:
@@ -148,6 +163,13 @@ def delete_exam(exam_id):
         return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor()
+        # Delete related data first
+        cursor.execute("DELETE FROM student_answers WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE exam_id = %s)", (exam_id,))
+        cursor.execute("DELETE FROM proctoring_violations WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE exam_id = %s)", (exam_id,))
+        cursor.execute("DELETE FROM results WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE exam_id = %s)", (exam_id,))
+        cursor.execute("DELETE FROM student_attempts WHERE exam_id = %s", (exam_id,))
+        cursor.execute("DELETE FROM questions WHERE exam_id = %s", (exam_id,))
+        cursor.execute("DELETE FROM exam_assignments WHERE exam_id = %s", (exam_id,))
         cursor.execute("DELETE FROM exams WHERE exam_id = %s", (exam_id,))
         conn.commit()
         return jsonify({"success": True, "message": "Exam deleted"}), 200
