@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 bp = Blueprint('dashboard', __name__)
 
 
-# FIX #7: GET /api/admin/dashboard
+# GET /api/admin/dashboard
 @bp.route('/admin/dashboard', methods=['GET'])
 @jwt_required()
 @role_required(['admin', 'super_admin'])
@@ -94,6 +94,7 @@ def get_profile():
             conn.close()
 
 
+# FIX #3: Removed plain text fallback from admin change-password
 @bp.route('/admin/change-password', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'super_admin'])
@@ -115,8 +116,7 @@ def change_password():
         user = cursor.fetchone()
 
         if not user or not check_password_hash(user['password'], old_pw):
-            if not user or user['password'] != old_pw:
-                return jsonify({"success": False, "message": "Current password is incorrect"}), 401
+            return jsonify({"success": False, "message": "Current password is incorrect"}), 401
 
         hashed_new = generate_password_hash(new_pw)
         cursor.execute("UPDATE users SET password = %s WHERE user_id = %s", (hashed_new, user_id))
@@ -129,7 +129,7 @@ def change_password():
             conn.close()
 
 
-# FIX #5: POST /api/student/change-password
+# FIX #3: Removed plain text fallback from student change-password
 @bp.route('/student/change-password', methods=['POST'])
 @jwt_required()
 @role_required(['student'])
@@ -151,8 +151,7 @@ def student_change_password():
         user = cursor.fetchone()
 
         if not user or not check_password_hash(user['password'], old_pw):
-            if not user or user['password'] != old_pw:
-                return jsonify({"success": False, "message": "Current password is incorrect"}), 401
+            return jsonify({"success": False, "message": "Current password is incorrect"}), 401
 
         hashed_new = generate_password_hash(new_pw)
         cursor.execute("UPDATE users SET password = %s WHERE user_id = %s", (hashed_new, user_id))
@@ -165,7 +164,7 @@ def student_change_password():
             conn.close()
 
 
-# FIX #8: GET /api/student/statistics
+# GET /api/student/statistics
 @bp.route('/student/statistics', methods=['GET'])
 @jwt_required()
 @role_required(['student'])
