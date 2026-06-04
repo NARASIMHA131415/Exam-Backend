@@ -73,7 +73,8 @@ def get_student_results():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @bp.route('/admin/results/list', methods=['GET'])
 @jwt_required()
