@@ -60,10 +60,9 @@ def login():
         if not user:
             return jsonify({"success": False, "message": "Invalid email or password"}), 401
 
-        # Verify password
+        # FIX #3: Removed plain text password fallback — only hashed passwords allowed
         if not check_password_hash(user['password'], password):
-            if user['password'] != password:  # Fallback for plain text during migration
-                return jsonify({"success": False, "message": "Invalid email or password"}), 401
+            return jsonify({"success": False, "message": "Invalid email or password"}), 401
 
         # Create JWT Token
         access_token = create_access_token(
@@ -115,9 +114,9 @@ def change_password():
         if not user:
             return jsonify({"success": False, "message": "User not found"}), 404
 
+        # FIX #3: Only hashed password verification
         if not check_password_hash(user['password'], old_password):
-            if user['password'] != old_password:
-                return jsonify({"success": False, "message": "Current password is incorrect"}), 401
+            return jsonify({"success": False, "message": "Current password is incorrect"}), 401
 
         hashed_new_pw = generate_password_hash(new_password)
         cursor.execute("UPDATE users SET password = %s WHERE user_id = %s", (hashed_new_pw, user_id))
