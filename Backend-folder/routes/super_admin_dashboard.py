@@ -13,31 +13,24 @@ bp = Blueprint('super_admin', __name__)
 def get_admins():
     conn = db.get_connection()
     if conn is None:
-        return jsonify({
-            "success": False,
-            "message": "Database connection failed"
-        }), 503
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT
-                user_id AS id,
-                email,
-                role,
-                created_at
-            FROM users
-            WHERE role IN ('admin', 'super_admin')
+                u.user_id AS id,
+                u.email,
+                u.role,
+                u.created_at,
+                CONCAT(up.first_name, ' ', up.last_name) AS name
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.role IN ('admin', 'super_admin')
         """)
         admins = cursor.fetchall()
-        return jsonify({
-            "success": True,
-            "admins": admins
-        }), 200
+        return jsonify({"success": True, "admins": admins}), 200
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": str(e)
-        }), 500
+        return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if conn:
             conn.close()
@@ -62,11 +55,9 @@ def create_admin():
         cursor = conn.cursor()
         hashed_pw = generate_password_hash(password)
 
-        # 1. Create user
         cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'admin')", (email, hashed_pw))
         user_id = cursor.lastrowid
 
-        # 2. Create profile
         first_name = name.split(' ')[0] if name else 'Admin'
         last_name = ' '.join(name.split(' ')[1:]) if name else ''
         cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name) VALUES (%s, %s, %s)", (user_id, first_name, last_name))
@@ -128,12 +119,7 @@ def bulk_create_admins():
         conn.commit()
         return jsonify({
             "success": True,
-            "data": {
-                "created": created,
-                "skipped": skipped,
-                "errors": errors,
-                "summary": {"created": len(created)}
-            }
+            "data": {"created": created, "skipped": skipped, "errors": errors, "summary": {"created": len(created)}}
         }), 200
     except Exception as e:
         conn.rollback()
@@ -155,6 +141,47 @@ def delete_admin(admin_id):
         cursor.execute("DELETE FROM users WHERE user_id = %s", (admin_id,))
         conn.commit()
         return jsonify({"success": True, "message": "Admin deleted"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+# FIX #10: PUT /api/super_admin/admins/<id>
+@bp.route('/super_admin/admins/<int:admin_id>', methods=['PUT'])
+@jwt_required()
+@role_required(['super_admin'])
+def update_admin(admin_id):
+    data = request.get_json()
+
+    conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("SELECT user_id FROM users WHERE user_id = %s AND role IN ('admin', 'super_admin')", (admin_id,))
+        if not cursor.fetchone():
+            return jsonify({"success": False, "message": "Admin not found"}), 404
+
+        if data.get('password'):
+            hashed_pw = generate_password_hash(data['password'])
+            cursor.execute("UPDATE users SET password = %s WHERE user_id = %s", (hashed_pw, admin_id))
+
+        if data.get('email'):
+            cursor.execute("UPDATE users SET email = %s WHERE user_id = %s", (data['email'].strip().lower(), admin_id))
+
+        if data.get('name'):
+            name = data['name'].strip()
+            first_name = name.split(' ')[0]
+            last_name = ' '.join(name.split(' ')[1:])
+            cursor.execute("UPDATE user_profiles SET first_name = %s, last_name = %s WHERE user_id = %s",
+                           (first_name, last_name, admin_id))
+
+        conn.commit()
+        return jsonify({"success": True, "message": "Admin updated successfully"}), 200
     except Exception as e:
         conn.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
@@ -193,15 +220,13 @@ def get_deletion_requests():
 
         for req in requests:
             cursor.execute("""
-                SELECT COUNT(*) AS count
-                FROM proctoring_violations pv
+                SELECT COUNT(*) AS count FROM proctoring_violations pv
                 JOIN student_attempts sa ON pv.attempt_id = sa.attempt_id
                 WHERE sa.user_id = %s
             """, (req['target_id'],))
             violation_count = cursor.fetchone()['count']
             req['has_violations'] = violation_count > 0
 
-        # Remove target_id from response (internal field)
         for req in requests:
             req.pop('target_id', None)
 
