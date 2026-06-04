@@ -149,7 +149,6 @@ def delete_admin(admin_id):
             conn.close()
 
 
-# FIX #10: PUT /api/super_admin/admins/<id>
 @bp.route('/super_admin/admins/<int:admin_id>', methods=['PUT'])
 @jwt_required()
 @role_required(['super_admin'])
@@ -259,11 +258,42 @@ def handle_deletion_request(request_id, action):
         if action == 'approve':
             target_id = req['target_id']
             if req['type'] == 'student':
-                cursor.execute("DELETE FROM student_answers WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)", (target_id,))
+                # FIX #3: Delete ALL related data in correct order
+                # 1. Delete student answers (references attempts)
+                cursor.execute(
+                    "DELETE FROM student_answers WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
+                    (target_id,)
+                )
+                # 2. Delete proctoring violations (references attempts)
+                cursor.execute(
+                    "DELETE FROM proctoring_violations WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
+                    (target_id,)
+                )
+                # 3. Delete question attempt logs (references attempts)
+                cursor.execute(
+                    "DELETE FROM question_attempt_logs WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
+                    (target_id,)
+                )
+                # 4. Delete results (references attempts)
+                cursor.execute(
+                    "DELETE FROM results WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
+                    (target_id,)
+                )
+                # 5. Delete attempts
                 cursor.execute("DELETE FROM student_attempts WHERE user_id = %s", (target_id,))
+                # 6. Delete exam assignments
+                cursor.execute("DELETE FROM exam_assignments WHERE user_id = %s", (target_id,))
+                # 7. Delete other deletion requests for this student
+                cursor.execute("DELETE FROM deletion_requests WHERE target_id = %s AND type = 'student'", (target_id,))
+                # 8. Delete profile
                 cursor.execute("DELETE FROM user_profiles WHERE user_id = %s", (target_id,))
+                # 9. Delete user (must be last)
                 cursor.execute("DELETE FROM users WHERE user_id = %s", (target_id,))
             elif req['type'] == 'result':
+                # Delete result and related data
+                cursor.execute("DELETE FROM proctoring_violations WHERE attempt_id = %s", (target_id,))
+                cursor.execute("DELETE FROM question_attempt_logs WHERE attempt_id = %s", (target_id,))
+                cursor.execute("DELETE FROM student_answers WHERE attempt_id = %s", (target_id,))
                 cursor.execute("DELETE FROM results WHERE attempt_id = %s", (target_id,))
 
             cursor.execute("UPDATE deletion_requests SET status = 'Approved' WHERE request_id = %s", (request_id,))
