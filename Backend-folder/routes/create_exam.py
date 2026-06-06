@@ -70,8 +70,8 @@ def create_exam():
 
         # FIX #4: Include total_questions + duration in INSERT
         query = """
-            INSERT INTO exams (title, description, duration, duration_minutes, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, %s, 'published', %s, %s, %s)
+            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
         """
         cursor.execute(query, (title, description, duration, duration, deadline, user_id, exam_code, total_questions))
         conn.commit()
@@ -124,8 +124,8 @@ def create_exam_pdf():
 
         # Insert exam record (include both duration and duration_minutes)
         cursor.execute("""
-            INSERT INTO exams (title, description, duration, duration_minutes, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, %s, 'published', %s, %s, %s)
+            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
         """, (title, description, duration, duration, deadline or None, user_id, exam_code, total_questions or None))
         exam_id = cursor.lastrowid
 
