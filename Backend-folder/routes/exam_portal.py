@@ -77,7 +77,7 @@ def get_exam_by_code(code):
 def join_exam():
     user_id = get_jwt_identity()
     data = request.get_json()
-    exam_code = data.get('exam_code', '').strip().upper()
+    exam_code = (data.get('exam_code') or '').strip().upper()
 
     if not exam_code:
         return jsonify({"success": False, "message": "Exam code is required"}), 400
