@@ -70,10 +70,10 @@ def create_exam():
 
         # FIX #4: Include total_questions + duration in INSERT
         query = """
-            INSERT INTO exams (title, description, duration, duration_minutes, total_marks, passing_marks, is_published, start_time, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, %s, %s, 1, NOW(), %s, 'published', %s, %s, %s)
+            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
         """
-        cursor.execute(query, (title, description, duration, duration, total_questions, 0, deadline, user_id, exam_code, total_questions))
+        cursor.execute(query, (title, description, duration, duration, deadline, user_id, exam_code, total_questions))
         conn.commit()
 
         return jsonify({"success": True, "message": "Exam created successfully", "exam_id": cursor.lastrowid, "exam_code": exam_code}), 201
@@ -122,11 +122,11 @@ def create_exam_pdf():
         cursor = conn.cursor()
         exam_code = generate_exam_code()
 
-        # Insert exam record (include all NOT NULL columns)
+        # Insert exam record
         cursor.execute("""
-            INSERT INTO exams (title, description, duration, duration_minutes, total_marks, passing_marks, is_published, start_time, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, %s, %s, 1, NOW(), %s, 'published', %s, %s, %s)
-        """, (title, description, duration, duration, total_questions or 0, 0, deadline or None, user_id, exam_code, total_questions or None))
+            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
+        """, (title, description, duration, duration, deadline or None, user_id, exam_code, total_questions or None))
         exam_id = cursor.lastrowid
 
         # FIX B: Store answer key as questions + options rows
