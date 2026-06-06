@@ -60,7 +60,7 @@ def create_admin():
 
         first_name = name.split(' ')[0] if name else 'Admin'
         last_name = ' '.join(name.split(' ')[1:]) if name else ''
-        cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name) VALUES (%s, %s, %s)", (user_id, first_name, last_name))
+        cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name, roll_number, branch, year) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, first_name, last_name, None, None, None))
 
         conn.commit()
         return jsonify({"success": True, "message": "Admin created successfully"}), 201
@@ -72,7 +72,6 @@ def create_admin():
             conn.close()
 
 
-# BUG FIX: Updated CSV parser to match frontend format: email,password,first_name,last_name
 @bp.route('/super_admin/admins/bulk-create', methods=['POST'])
 @jwt_required()
 @role_required(['super_admin'])
@@ -93,48 +92,26 @@ def bulk_create_admins():
         return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor()
-
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if not line:
+        for line in lines:
+            if not line.strip():
                 continue
-
-            parts = [p.strip().strip('"').strip("'") for p in line.split(',')]
-
-            # BUG FIX: Skip header row
-            if i == 0 and parts[0].lower() in ('email', 'name', 'first_name'):
-                continue
-
-            # Support TWO formats:
-            # Format 1 (frontend sends): email, password, first_name, last_name
-            # Format 2 (manual paste):    name, email, password
-            if len(parts) >= 4 and '@' in parts[0]:
-                # Frontend CSV format: email,password,first_name,last_name
-                email = parts[0].strip().lower()
-                password = parts[1].strip()
-                first_name = parts[2].strip()
-                last_name = parts[3].strip() if len(parts) > 3 else ''
-            elif len(parts) >= 2:
-                # Manual paste format: name,email,password (or name,email)
-                name = parts[0].strip()
-                email = parts[1].strip().lower()
-                password = parts[2].strip() if len(parts) > 2 else "Admin@123"
-                first_name = name.split(' ')[0] if name else 'Admin'
-                last_name = ' '.join(name.split(' ')[1:]) if name else ''
-            else:
+            parts = line.split(',')
+            if len(parts) < 2:
                 errors.append({"line": line, "error": "Invalid format"})
                 continue
 
-            if not email or '@' not in email:
-                errors.append({"email": email, "error": "Invalid email format"})
-                continue
+            email = parts[1].strip().lower()
+            password = parts[2].strip() if len(parts) > 2 else "Admin@123"
+            name = parts[0].strip()
 
             try:
                 hashed_pw = generate_password_hash(password)
                 cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'admin')", (email, hashed_pw))
                 uid = cursor.lastrowid
 
-                cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name) VALUES (%s, %s, %s)", (uid, first_name, last_name))
+                fname = name.split(' ')[0] if name else 'Admin'
+                lname = ' '.join(name.split(' ')[1:]) if name else ''
+                cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name, roll_number, branch, year) VALUES (%s, %s, %s, %s, %s, %s)", (uid, fname, lname, None, None, None))
                 created.append({"email": email, "password": password})
             except Exception as e:
                 errors.append({"email": email, "error": str(e)})
@@ -161,25 +138,6 @@ def delete_admin(admin_id):
         return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor()
-        # Clean up related data before deleting
-        cursor.execute(
-            "DELETE FROM student_answers WHERE attempt_id IN "
-            "(SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
-            (admin_id,)
-        )
-        cursor.execute(
-            "DELETE FROM proctoring_violations WHERE attempt_id IN "
-            "(SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
-            (admin_id,)
-        )
-        cursor.execute(
-            "DELETE FROM results WHERE attempt_id IN "
-            "(SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
-            (admin_id,)
-        )
-        cursor.execute("DELETE FROM student_attempts WHERE user_id = %s", (admin_id,))
-        cursor.execute("DELETE FROM exam_assignments WHERE user_id = %s", (admin_id,))
-        cursor.execute("DELETE FROM user_profiles WHERE user_id = %s", (admin_id,))
         cursor.execute("DELETE FROM users WHERE user_id = %s", (admin_id,))
         conn.commit()
         return jsonify({"success": True, "message": "Admin deleted"}), 200
@@ -300,29 +258,39 @@ def handle_deletion_request(request_id, action):
         if action == 'approve':
             target_id = req['target_id']
             if req['type'] == 'student':
-                # Delete ALL related data in correct order
+                # FIX #3: Delete ALL related data in correct order
+                # 1. Delete student answers (references attempts)
                 cursor.execute(
                     "DELETE FROM student_answers WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
                     (target_id,)
                 )
+                # 2. Delete proctoring violations (references attempts)
                 cursor.execute(
                     "DELETE FROM proctoring_violations WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
                     (target_id,)
                 )
+                # 3. Delete question attempt logs (references attempts)
                 cursor.execute(
                     "DELETE FROM question_attempt_logs WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
                     (target_id,)
                 )
+                # 4. Delete results (references attempts)
                 cursor.execute(
                     "DELETE FROM results WHERE attempt_id IN (SELECT attempt_id FROM student_attempts WHERE user_id = %s)",
                     (target_id,)
                 )
+                # 5. Delete attempts
                 cursor.execute("DELETE FROM student_attempts WHERE user_id = %s", (target_id,))
+                # 6. Delete exam assignments
                 cursor.execute("DELETE FROM exam_assignments WHERE user_id = %s", (target_id,))
+                # 7. Delete other deletion requests for this student
                 cursor.execute("DELETE FROM deletion_requests WHERE target_id = %s AND type = 'student'", (target_id,))
+                # 8. Delete profile
                 cursor.execute("DELETE FROM user_profiles WHERE user_id = %s", (target_id,))
+                # 9. Delete user (must be last)
                 cursor.execute("DELETE FROM users WHERE user_id = %s", (target_id,))
             elif req['type'] == 'result':
+                # Delete result and related data
                 cursor.execute("DELETE FROM proctoring_violations WHERE attempt_id = %s", (target_id,))
                 cursor.execute("DELETE FROM question_attempt_logs WHERE attempt_id = %s", (target_id,))
                 cursor.execute("DELETE FROM student_answers WHERE attempt_id = %s", (target_id,))
