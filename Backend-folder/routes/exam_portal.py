@@ -106,8 +106,8 @@ def join_exam():
 
         # 3. Create new attempt
         cursor.execute(
-            "INSERT INTO student_attempts (exam_id, user_id, start_time, end_time, attempt_status) VALUES (%s, %s, %s, %s, 'in_progress')",
-            (exam_id, user_id, datetime.now(), datetime.now())
+            "INSERT INTO student_attempts (exam_id, user_id, student_id, start_time, end_time, attempt_status) VALUES (%s, %s, %s, %s, %s, 'in_progress')",
+            (exam_id, user_id, user_id, datetime.now(), datetime.now())
         )
         conn.commit()
 
