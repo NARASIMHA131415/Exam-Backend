@@ -122,9 +122,10 @@ def save_answer(exam_id):
         attempt_id = attempt[0]
 
         # Store the answer label (A, B, C, D) — same format used in grading
+        # Also populate original columns (question_number, selected_option) in case they are NOT NULL
         cursor.execute(
-            "INSERT INTO student_answers (attempt_id, question_id, selected_option_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE selected_option_id = VALUES(selected_option_id)",
-            (attempt_id, q_id, answer)
+            "INSERT INTO student_answers (attempt_id, question_id, question_number, selected_option_id, selected_option) VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE selected_option_id = VALUES(selected_option_id), selected_option = VALUES(selected_option)",
+            (attempt_id, q_id, q_id, answer, answer)
         )
         conn.commit()
 
@@ -206,10 +207,11 @@ def submit_exam(exam_id):
         score = correct_count
         percentage = (correct_count / total_questions * 100) if total_questions > 0 else 0
 
-        # 4. Save results
+        # 4. Save results (provide all NOT NULL columns)
+        wrong_count = total_questions - correct_count
         cursor.execute(
-            "INSERT INTO results (attempt_id, score, correct_answers, percentage, evaluated_at) VALUES (%s, %s, %s, %s, %s)",
-            (attempt_id, score, correct_count, percentage, datetime.now())
+            "INSERT INTO results (attempt_id, score, total_marks, total_questions, correct_answers, wrong_answers, unanswered, percentage, evaluated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (attempt_id, score, total_questions, total_questions, total_questions, correct_count, wrong_count, 0, percentage, datetime.now())
         )
 
         conn.commit()
