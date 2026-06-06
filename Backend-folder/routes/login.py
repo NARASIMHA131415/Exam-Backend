@@ -10,8 +10,8 @@ bp = Blueprint('login', __name__)
 @bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = (data.get('password') or '').strip()
 
     if not email or not password:
         return jsonify({"success": False, "message": "Email and password are required"}), 400
