@@ -68,12 +68,12 @@ def create_exam():
         user_id = get_jwt_identity()
         exam_code = generate_exam_code()
 
-        # FIX #4: Include total_questions in INSERT
+        # FIX #4: Include total_questions in INSERT, also include duration for original column
         query = """
-            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s)
+            INSERT INTO exams (title, description, duration, duration_minutes, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, %s, 'published', %s, %s, %s)
         """
-        cursor.execute(query, (title, description, duration, deadline, user_id, exam_code, total_questions))
+        cursor.execute(query, (title, description, duration, duration, deadline, user_id, exam_code, total_questions))
         conn.commit()
 
         return jsonify({"success": True, "message": "Exam created successfully", "exam_id": cursor.lastrowid, "exam_code": exam_code}), 201
@@ -122,11 +122,11 @@ def create_exam_pdf():
         cursor = conn.cursor()
         exam_code = generate_exam_code()
 
-        # Insert exam record
+        # Insert exam record (include both duration and duration_minutes)
         cursor.execute("""
-            INSERT INTO exams (title, description, duration_minutes, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, 'published', %s, %s, %s)
-        """, (title, description, duration, deadline or None, user_id, exam_code, total_questions or None))
+            INSERT INTO exams (title, description, duration, duration_minutes, end_time, status, created_by, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, %s, %s, 'published', %s, %s)
+        """, (title, description, duration, duration, deadline or None, user_id, exam_code, total_questions or None))
         exam_id = cursor.lastrowid
 
         # FIX B: Store answer key as questions + options rows
