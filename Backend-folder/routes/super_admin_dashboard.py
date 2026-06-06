@@ -41,9 +41,9 @@ def get_admins():
 @role_required(['super_admin'])
 def create_admin():
     data = request.get_json()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password')
-    name = data.get('name', '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    name = (data.get('name') or '').strip()
 
     if not email or not password:
         return jsonify({"success": False, "message": "Email and password required"}), 400
