@@ -55,7 +55,8 @@ def create_admin():
         cursor = conn.cursor()
         hashed_pw = generate_password_hash(password)
 
-        cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'admin')", (email, hashed_pw))
+        full_name = name or email.split('@')[0]
+        cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, 'admin')", (full_name, email, hashed_pw))
         user_id = cursor.lastrowid
 
         first_name = name.split(' ')[0] if name else 'Admin'
@@ -106,7 +107,8 @@ def bulk_create_admins():
 
             try:
                 hashed_pw = generate_password_hash(password)
-                cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'admin')", (email, hashed_pw))
+                full_name = name or email.split('@')[0]
+                cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, 'admin')", (full_name, email, hashed_pw))
                 uid = cursor.lastrowid
 
                 fname = name.split(' ')[0] if name else 'Admin'
