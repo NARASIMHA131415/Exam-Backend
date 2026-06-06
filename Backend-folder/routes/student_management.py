@@ -52,7 +52,8 @@ def create_student():
     try:
         cursor = conn.cursor()
         hashed_pw = generate_password_hash(password)
-        cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'student')", (email, hashed_pw))
+        full_name = ' '.join(filter(None, [first_name, last_name])) or email.split('@')[0]
+        cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, 'student')", (full_name, email, hashed_pw))
         user_id = cursor.lastrowid
 
         cursor.execute("INSERT INTO user_profiles (user_id, first_name, last_name, roll_number, branch, year) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -154,7 +155,8 @@ def bulk_create_students():
                     continue
 
                 hashed_pw = generate_password_hash(password)
-                cursor.execute("INSERT INTO users (email, password, role) VALUES (%s, %s, 'student')", (email, hashed_pw))
+                full_name = name or email.split('@')[0]
+                cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, 'student')", (full_name, email, hashed_pw))
                 uid = cursor.lastrowid
 
                 fname = name.split(' ')[0] if name else 'Student'
