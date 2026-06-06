@@ -38,10 +38,10 @@ def get_students():
 @role_required(['admin', 'super_admin'])
 def create_student():
     data = request.get_json()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password')
-    first_name = data.get('first_name', '').strip()
-    last_name = data.get('last_name', '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    first_name = (data.get('first_name') or '').strip()
+    last_name = (data.get('last_name') or '').strip()
 
     if not email or not password or not first_name:
         return jsonify({"success": False, "message": "Name, email and password are required"}), 400
