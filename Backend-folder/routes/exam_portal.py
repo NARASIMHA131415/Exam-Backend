@@ -18,14 +18,15 @@ def get_available_exams():
         return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
+        # Show all published exams — students join by code, no assignment required
         query = """
             SELECT
                 e.exam_id as id, e.title, e.exam_code, e.description,
                 e.duration_minutes as duration, e.end_time as deadline, e.created_at,
                 (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.exam_id) as total_questions
             FROM exams e
-            JOIN exam_assignments ea ON e.exam_id = ea.exam_id
-            WHERE ea.user_id = %s AND e.status = 'published'
+            WHERE e.status = 'published'
+            ORDER BY e.created_at DESC
         """
         cursor.execute(query, (user_id,))
         exams = cursor.fetchall()
@@ -49,15 +50,15 @@ def get_exam_by_code(code):
         return jsonify({"success": False, "message": "Database connection failed"}), 503
     try:
         cursor = conn.cursor(dictionary=True)
+        # Look up exam by code only — no assignment required (students join by code)
         query = """
             SELECT e.exam_id as id, e.title, e.exam_code, e.description,
                    e.duration_minutes as duration, e.end_time as deadline,
                    (SELECT COUNT(*) FROM questions q WHERE q.exam_id = e.exam_id) as total_questions
             FROM exams e
-            JOIN exam_assignments ea ON e.exam_id = ea.exam_id
-            WHERE e.exam_code = %s AND ea.user_id = %s AND e.status = 'published'
+            WHERE e.exam_code = %s AND e.status = 'published'
         """
-        cursor.execute(query, (code.strip().upper(), user_id))
+        cursor.execute(query, (code.strip().upper(),))
         exam = cursor.fetchone()
 
         if not exam:
