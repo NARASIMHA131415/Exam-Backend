@@ -69,11 +69,14 @@ def create_exam():
         exam_code = generate_exam_code()
 
         # FIX #4: Include total_questions + duration in INSERT
+        # FIX: match actual DB schema — end_time NOT NULL, is_published NOT NULL, category_id NOT NULL
+        # If no deadline, set end_time far in the future
+        end_time = deadline or '2099-12-31 23:59:59'
         query = """
-            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
+            INSERT INTO exams (title, description, duration, duration_minutes, is_published, start_time, end_time, status, created_by, category_id, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, 1, NOW(), %s, 'published', %s, 1, %s, %s)
         """
-        cursor.execute(query, (title, description, duration, duration, deadline, user_id, exam_code, total_questions))
+        cursor.execute(query, (title, description, duration, duration, end_time, user_id, exam_code, total_questions))
         conn.commit()
 
         return jsonify({"success": True, "message": "Exam created successfully", "exam_id": cursor.lastrowid, "exam_code": exam_code}), 201
@@ -122,11 +125,12 @@ def create_exam_pdf():
         cursor = conn.cursor()
         exam_code = generate_exam_code()
 
-        # Insert exam record
+        # FIX: match actual DB schema — end_time NOT NULL, is_published NOT NULL, category_id NOT NULL
+        end_time = deadline or '2099-12-31 23:59:59'
         cursor.execute("""
-            INSERT INTO exams (title, description, duration, duration_minutes, start_time, end_time, status, created_by, exam_code, total_questions)
-            VALUES (%s, %s, %s, %s, NOW(), %s, 'published', %s, %s, %s)
-        """, (title, description, duration, duration, deadline or None, user_id, exam_code, total_questions or None))
+            INSERT INTO exams (title, description, duration, duration_minutes, is_published, start_time, end_time, status, created_by, category_id, exam_code, total_questions)
+            VALUES (%s, %s, %s, %s, 1, NOW(), %s, 'published', %s, 1, %s, %s)
+        """, (title, description, duration, duration, end_time, user_id, exam_code, total_questions or None))
         exam_id = cursor.lastrowid
 
         # FIX B: Store answer key as questions + options rows
