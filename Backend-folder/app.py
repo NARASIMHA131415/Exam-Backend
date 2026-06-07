@@ -46,5 +46,14 @@ app.register_blueprint(detected_students_bp, url_prefix='/api')
 def health_check():
     return jsonify({"status": "healthy", "message": "Backend is running"}), 200
 
+
+# Serve uploaded files (PDFs, violation images)
+@app.route('/uploads/<path:filename>', methods=['GET'])
+def serve_upload(filename):
+    from flask import send_from_directory
+    upload_dir = os.path.join(os.getcwd(), 'uploads')
+    return send_from_directory(upload_dir, filename)
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
