@@ -43,7 +43,7 @@ def get_exam_questions(exam_id):
     try:
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("SELECT exam_id as id, title, exam_code, duration_minutes as duration, pdf_url, total_questions FROM exams WHERE exam_id = %s", (exam_id,))
+        cursor.execute("SELECT exam_id as id, title, exam_code, COALESCE(duration_minutes, duration) as duration, pdf_url, total_questions FROM exams WHERE exam_id = %s", (exam_id,))
         exam = cursor.fetchone()
 
         if not exam:
@@ -245,7 +245,7 @@ def check_timer(exam_id):
     try:
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("SELECT duration_minutes FROM exams WHERE exam_id = %s", (exam_id,))
+        cursor.execute("SELECT COALESCE(duration_minutes, duration) as duration_minutes FROM exams WHERE exam_id = %s", (exam_id,))
         exam = cursor.fetchone()
 
         if not exam:
