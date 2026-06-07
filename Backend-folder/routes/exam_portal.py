@@ -28,7 +28,7 @@ def get_available_exams():
             WHERE e.status = 'published'
             ORDER BY e.created_at DESC
         """
-        cursor.execute(query, (user_id,))
+        cursor.execute(query)
         exams = cursor.fetchall()
 
         return jsonify({"success": True, "exams": exams}), 200
