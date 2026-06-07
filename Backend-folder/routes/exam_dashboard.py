@@ -207,11 +207,12 @@ def submit_exam(exam_id):
         score = correct_count
         percentage = (correct_count / total_questions * 100) if total_questions > 0 else 0
 
-        # 4. Save results (provide all NOT NULL columns)
+        # 4. Save results (match actual DB schema: max_score, skipped_questions — NOT total_marks/unanswered)
         wrong_count = total_questions - correct_count
+        skipped = total_questions - len(final_answers)
         cursor.execute(
-            "INSERT INTO results (attempt_id, score, total_marks, total_questions, correct_answers, wrong_answers, unanswered, percentage, evaluated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (attempt_id, score, total_questions, total_questions, total_questions, correct_count, wrong_count, 0, percentage, datetime.now())
+            "INSERT INTO results (attempt_id, score, max_score, total_questions, correct_answers, wrong_answers, skipped_questions, percentage, evaluated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (attempt_id, score, total_questions, total_questions, correct_count, wrong_count, skipped, percentage, datetime.now())
         )
 
         conn.commit()
