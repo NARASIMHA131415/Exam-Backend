@@ -19,7 +19,8 @@ def get_result(attempt_id):
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT r.*, e.title as exam_title, e.exam_code, sa.start_time, sa.end_time, sa.user_id
+            SELECT r.*, r.evaluated_at as submitted_at,
+                   e.title as exam_title, e.exam_code, sa.start_time, sa.end_time, sa.user_id
             FROM results r
             JOIN student_attempts sa ON r.attempt_id = sa.attempt_id
             JOIN exams e ON sa.exam_id = e.exam_id
@@ -37,14 +38,31 @@ def get_result(attempt_id):
         cursor.execute("SELECT exam_id FROM student_attempts WHERE attempt_id = %s", (attempt_id,))
         exam_id = cursor.fetchone()['exam_id']
 
+        # Get correct answers with question_order for PDF-mode matching
         cursor.execute(
-            "SELECT q.question_id, o.option_label as correct_val FROM questions q JOIN options o ON q.question_id = o.question_id WHERE q.exam_id = %s AND o.is_correct = TRUE",
+            "SELECT q.question_id, q.question_order, o.option_label as correct_val FROM questions q JOIN options o ON q.question_id = o.question_id WHERE q.exam_id = %s AND o.is_correct = TRUE ORDER BY q.question_order, q.question_id",
             (exam_id,)
         )
         correct_ans = cursor.fetchall()
 
-        cursor.execute("SELECT question_id, selected_option_id FROM student_answers WHERE attempt_id = %s", (attempt_id,))
-        student_ans = {row['question_id']: row['selected_option_id'] for row in cursor.fetchall()}
+        # Build question_order -> question_id mapping for PDF mode resolution
+        order_to_id = {}
+        for row in correct_ans:
+            if row['question_order'] is not None:
+                order_to_id[row['question_order']] = row['question_id']
+
+        # Get student answers — resolve question_number to question_id for PDF mode
+        cursor.execute("SELECT question_id, question_number, selected_option_id FROM student_answers WHERE attempt_id = %s", (attempt_id,))
+        student_ans_raw = cursor.fetchall()
+        student_ans = {}
+        for sa_row in student_ans_raw:
+            qid = sa_row['question_id']
+            ans = sa_row['selected_option_id']
+            # If question_id doesn't match any correct answer, try resolving via question_number
+            if qid not in {r['question_id'] for r in correct_ans} and sa_row['question_number'] in order_to_id:
+                qid = order_to_id[sa_row['question_number']]
+            if ans:
+                student_ans[qid] = ans
 
         detailed = []
         for i, row in enumerate(correct_ans, 1):
@@ -112,7 +130,8 @@ def get_admin_results():
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT r.*, e.title as exam_title, e.exam_code,
+            SELECT r.*, r.evaluated_at as submitted_at,
+                   e.title as exam_title, e.exam_code,
                    up.first_name, up.last_name, u.email as student_email,
                    (SELECT COUNT(*) FROM questions WHERE exam_id = e.exam_id) as total_questions,
                    TIMESTAMPDIFF(SECOND, sa.start_time, sa.end_time) as time_taken
