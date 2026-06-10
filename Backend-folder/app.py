@@ -48,6 +48,23 @@ app.register_blueprint(detected_students_bp, url_prefix='/api')
 def health_check():
     return jsonify({"status": "healthy", "message": "Backend is running"}), 200
 
+@app.route('/api/migrate-db', methods=['GET'])
+def migrate_db():
+    from database import db
+    conn = db.get_connection()
+    if not conn:
+        return jsonify({"success": False, "message": "DB Connection failed"}), 500
+    try:
+        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE exams MODIFY COLUMN pdf_url LONGTEXT")
+        cursor.execute("ALTER TABLE proctoring_violations MODIFY COLUMN image_path LONGTEXT")
+        conn.commit()
+        return jsonify({"success": True, "message": "Database successfully migrated for Base64 storage!"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+    finally:
+        conn.close()
+
 
 # Serve uploaded files (PDFs, violation images)
 @app.route('/uploads/<path:filename>', methods=['GET'])
