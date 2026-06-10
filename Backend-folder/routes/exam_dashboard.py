@@ -11,24 +11,10 @@ bp = Blueprint('exam_dashboard', __name__)
 
 
 def save_violation_image(base64_str):
+    # Now returns the Base64 string directly for Database LONGTEXT storage
     if not base64_str or not base64_str.startswith('data:image'):
         return None
-    try:
-        header, encoded = base64_str.split(',', 1)
-        data = base64.b64decode(encoded)
-
-        filename = f"violation_{uuid.uuid4().hex}.jpg"
-        filepath = os.path.join('uploads', 'violations', filename)
-
-        os.makedirs(os.path.join('uploads', 'violations'), exist_ok=True)
-
-        with open(filepath, 'wb') as f:
-            f.write(data)
-
-        return f"/uploads/violations/{filename}"
-    except Exception as e:
-        print(f"Image save error: {e}")
-        return None
+    return base64_str
 
 
 @bp.route('/exam/<int:exam_id>/questions', methods=['GET'])
