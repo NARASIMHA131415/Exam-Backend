@@ -2,6 +2,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
+from datetime import timedelta
 import os
 
 # Import blueprints
@@ -28,6 +29,7 @@ CORS(app, resources={
 
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key-change-this-in-production')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=12)
 jwt = JWTManager(app)
 
 # Register blueprints with prefixes to match api.js
