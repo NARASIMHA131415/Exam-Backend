@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.auth import role_required
 from database import db
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import base64
 import uuid
@@ -165,13 +165,31 @@ def submit_exam(exam_id):
     try:
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("SELECT attempt_id FROM student_attempts WHERE exam_id = %s AND user_id = %s AND attempt_status = 'in_progress'", (exam_id, user_id))
+        cursor.execute("SELECT attempt_id, start_time FROM student_attempts WHERE exam_id = %s AND user_id = %s AND attempt_status = 'in_progress'", (exam_id, user_id))
         attempt = cursor.fetchone()
 
         if not attempt:
             return jsonify({"success": False, "message": "No active attempt"}), 403
 
         attempt_id = attempt['attempt_id']
+
+        # VERIFY SERVER TIME: Prevent Infinite Exam Exploit
+        cursor.execute("SELECT duration, duration_minutes FROM exams WHERE exam_id = %s", (exam_id,))
+        exam_data = cursor.fetchone()
+        
+        # Duration is either in duration_minutes or duration
+        duration_minutes = exam_data.get('duration_minutes') or exam_data.get('duration') or 60
+        start_time = attempt['start_time']
+        
+        # Calculate maximum allowed submission time (Duration + 2 minutes of internet lag grace period)
+        max_allowed_time = start_time + timedelta(minutes=duration_minutes + 2)
+        
+        if datetime.now() > max_allowed_time:
+            # Force auto-submit with time expiration logic (the answers provided will still be graded, but the backend dictates the time)
+            time_taken = duration_minutes * 60
+        else:
+            # Backend strictly computes the real time taken, completely ignoring frontend's time_taken payload
+            time_taken = min(duration_minutes * 60, int((datetime.now() - start_time).total_seconds()))
 
         # 1. Mark attempt as submitted
         cursor.execute("UPDATE student_attempts SET attempt_status = 'submitted', end_time = %s WHERE attempt_id = %s", (datetime.now(), attempt_id))
