@@ -92,6 +92,42 @@ def login():
             conn.close()
 
 
+@bp.route('/verify-token', methods=['GET'])
+@jwt_required()
+def verify_token():
+    user_id = get_jwt_identity()
+    conn = db.get_connection()
+    if conn is None:
+        return jsonify({"success": False, "message": "Database connection failed"}), 503
+        
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT u.user_id, u.email, u.role, CONCAT(up.first_name, ' ', up.last_name) AS name 
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.user_id = %s
+        """, (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({"success": False, "message": "User not found"}), 404
+
+        return jsonify({
+            "success": True,
+            "user": {
+                "id": user['user_id'],
+                "email": user['email'],
+                "role": user['role'],
+                "name": user['name'] or user['email'].split('@')[0]
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 @bp.route('/change-password', methods=['POST'])
 @jwt_required()
 def change_password():
