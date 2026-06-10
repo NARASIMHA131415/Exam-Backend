@@ -152,17 +152,14 @@ def create_exam_pdf():
                         VALUES (%s, %s, %s, %s)
                     """, (question_id, label, f"Option {label}", is_correct))
 
-        # Save PDF after DB insert succeeds
+        # Save PDF as Base64 in Database
         if pdf_file:
-            upload_dir = os.path.join('uploads', 'exams')
-            os.makedirs(upload_dir, exist_ok=True)
+            import base64
+            pdf_bytes = pdf_file.read()
+            pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+            pdf_url = f"data:application/pdf;base64,{pdf_b64}"
 
-            filename = f"exam_{exam_code}_{pdf_file.filename}"
-            filepath = os.path.join(upload_dir, filename)
-            pdf_file.save(filepath)
-            pdf_url = f"/uploads/exams/{filename}"
-
-            # Update record with PDF URL
+            # Update record with PDF Base64 String
             cursor.execute("UPDATE exams SET pdf_url = %s WHERE exam_id = %s", (pdf_url, exam_id))
 
         conn.commit()
@@ -179,12 +176,7 @@ def create_exam_pdf():
         }), 201
     except Exception as e:
         conn.rollback()
-        # Clean up orphaned file if it was saved but DB failed
-        if pdf_url:
-            try:
-                os.remove(os.path.join('uploads', 'exams', filename))
-            except:
-                pass
+        # DB Transaction will rollback on failure automatically.
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         if conn:
